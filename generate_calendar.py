@@ -38,6 +38,7 @@ WEATHER_LON = -96.8011
 CALENDARS = [
     {
         "name": "Adults",
+        "key": "a",
         "color": "#D9722C",
         "tint": "#FBEEE2",
         "text": "#8A4718",
@@ -45,6 +46,7 @@ CALENDARS = [
     },
     {
         "name": "Yuv",
+        "key": "y",
         "color": "#7B5EA7",
         "tint": "#F0EBF7",
         "text": "#503B72",
@@ -52,12 +54,16 @@ CALENDARS = [
     },
     {
         "name": "Ivaan",
+        "key": "i",
         "color": "#4E9A63",
         "tint": "#EBF4EC",
         "text": "#2E5F3B",
         "env": "IVAAN_ICS_URL",
     },
 ]
+
+# Canonical order for the visible-calendar suffix in page filenames.
+KEY_ORDER = "ayi"
 
 HEADER_COLOR = "#1F4E4A"
 BG_COLOR = "#EFF3F1"
@@ -192,6 +198,7 @@ def fetch_all_events(range_start, range_end):
             by_day.setdefault(event_date, []).append({
                 "time": time_label,
                 "summary": summary,
+                "key": cal_info["key"],
                 "color": cal_info["color"],
                 "tint": cal_info["tint"],
                 "text": cal_info["text"],
@@ -204,15 +211,31 @@ def fetch_all_events(range_start, range_end):
     return by_day
 
 
-def page_name(offset):
-    return "index.html" if offset == 0 else f"w{offset}.html"
+def page_name(offset, visible):
+    """visible is the set of calendar keys shown on this page. All-visible
+    pages keep the plain names (index.html, w1.html) so existing bookmarks
+    still work; other combinations get a suffix like -ai (Yuv hidden) or
+    -none (everything hidden)."""
+    base = "index" if offset == 0 else f"w{offset}"
+    if len(visible) == len(CALENDARS):
+        suffix = ""
+    else:
+        suffix = "-" + ("".join(k for k in KEY_ORDER if k in visible) or "none")
+    return f"{base}{suffix}.html"
 
 
-def render_html(week_start, week_end, by_day, generated_at, offset, weather):
-    legend_items = "".join(
-        f'<div class="legend-item"><span class="dot" style="background:{c["color"]}"></span>{c["name"]}</div>'
-        for c in CALENDARS
-    )
+def render_html(week_start, week_end, by_day, generated_at, offset, weather, visible):
+    # Legend names are toggle links: tapping one links to this same week
+    # with that calendar's visibility flipped (no JS, works on iOS 9).
+    legend_items = ""
+    for c in CALENDARS:
+        is_on = c["key"] in visible
+        flipped = visible - {c["key"]} if is_on else visible | {c["key"]}
+        cls = "legend-item" if is_on else "legend-item off"
+        legend_items += (
+            f'<a class="{cls}" href="{page_name(offset, flipped)}">'
+            f'<span class="dot" style="background:{c["color"]}"></span>{c["name"]}</a>'
+        )
 
     week_range_label = f"{week_start.strftime('%b %-d').upper()} – {week_end.strftime('%b %-d, %Y').upper()}"
 
@@ -224,6 +247,8 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather):
         is_today = " today" if d == today else ""
         events_html = ""
         for ev in by_day.get(d, []):
+            if ev["key"] not in visible:
+                continue
             events_html += (
                 f'<div class="event" style="background:{ev["tint"]};'
                 f'border-left-color:{ev["color"]};color:{ev["text"]}">'
@@ -243,14 +268,16 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather):
     # Prev/next week navigation (plain links, no JS). Arrows dim out at
     # the edges of the generated range.
     if offset > -WEEKS_BACK:
-        prev_html = f'<a class="nav-btn" href="{page_name(offset - 1)}">&#8249;</a>'
+        prev_html = f'<a class="nav-btn" href="{page_name(offset - 1, visible)}">&#8249;</a>'
     else:
         prev_html = '<span class="nav-btn dim">&#8249;</span>'
     if offset < WEEKS_FORWARD:
-        next_html = f'<a class="nav-btn" href="{page_name(offset + 1)}">&#8250;</a>'
+        next_html = f'<a class="nav-btn" href="{page_name(offset + 1, visible)}">&#8250;</a>'
     else:
         next_html = '<span class="nav-btn dim">&#8250;</span>'
-    today_html = '<a class="nav-btn today-btn" href="index.html">TODAY</a>' if offset != 0 else ""
+    today_html = (
+        f'<a class="nav-btn today-btn" href="{page_name(0, visible)}">TODAY</a>' if offset != 0 else ""
+    )
 
     if weather:
         weather_html = (
@@ -262,8 +289,8 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather):
 
     # Current week reloads in place every 30 min; browsed weeks snap back
     # to the current week instead, so the fridge never gets stuck on a
-    # past/future week.
-    refresh = "1800" if offset == 0 else "1800;url=index.html"
+    # past/future week. Both keep the current show/hide selection.
+    refresh = "1800" if offset == 0 else f"1800;url={page_name(0, visible)}"
 
     updated_label = generated_at.strftime("%b %-d, %Y · %-I:%M %p %Z")
 
@@ -307,6 +334,12 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather):
     font-weight: bold;
     color: #E4EEED;
     margin-right: 20px;
+    padding: 6px 0;
+    text-decoration: none;
+  }}
+  .legend-item.off {{
+    opacity: 0.45;
+    text-decoration: line-through;
   }}
   .dot {{
     width: 11px;
@@ -442,16 +475,26 @@ def main():
     by_day = fetch_all_events(range_start, range_end)
     weather = fetch_weather()
 
+    # One page per week per show/hide combination (2^3 = 8 combos), so the
+    # legend toggles work as plain links with no JavaScript.
+    combos = [
+        frozenset(k for j, k in enumerate(KEY_ORDER) if bits >> j & 1)
+        for bits in range(2 ** len(CALENDARS))
+    ]
+
     os.makedirs("output", exist_ok=True)
+    pages = 0
     for offset in range(-WEEKS_BACK, WEEKS_FORWARD + 1):
         week_start = current_week_start + timedelta(weeks=offset)
         week_end = week_start + timedelta(days=6)
-        html = render_html(week_start, week_end, by_day, now, offset, weather)
-        with open(os.path.join("output", page_name(offset)), "w") as f:
-            f.write(html)
+        for visible in combos:
+            html = render_html(week_start, week_end, by_day, now, offset, weather, visible)
+            with open(os.path.join("output", page_name(offset, visible)), "w") as f:
+                f.write(html)
+            pages += 1
 
-    print(f"Generated {WEEKS_BACK + WEEKS_FORWARD + 1} weekly pages "
-          f"({range_start} to {range_end}), weather={'ok' if weather else 'unavailable'}")
+    print(f"Generated {pages} pages ({range_start} to {range_end}), "
+          f"weather={'ok' if weather else 'unavailable'}")
 
 
 if __name__ == "__main__":

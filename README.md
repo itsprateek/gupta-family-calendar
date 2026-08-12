@@ -66,6 +66,9 @@ small commit every couple months to reset the clock.
   calendar seems to be missing consistently.
 - Colors: Adults = orange, Yuv = purple, Ivaan = green — matches the
   legend in the header bar.
+- Tap a name in the legend to hide that calendar's events (it shows
+  dimmed and struck through); tap again to bring it back. The choice
+  sticks while browsing weeks and across the 30-minute auto-refresh.
 - The ‹ › arrows in the header browse past/future weeks (4 back, 8
   forward). Browsed weeks auto-return to the current week after 30
   minutes, so the fridge never gets stuck on the wrong week.
