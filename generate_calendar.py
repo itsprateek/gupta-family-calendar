@@ -159,6 +159,10 @@ def render_html(week_start, week_end, by_day, generated_at):
 
     days_html = "".join(day_columns)
 
+    # Computed outside the f-string: expression parts can't contain
+    # backslashes (·) until Python 3.12, and Actions runs 3.11.
+    updated_label = generated_at.strftime("%b %-d, %Y · %-I:%M %p %Z")
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -291,7 +295,7 @@ def render_html(week_start, week_end, by_day, generated_at):
   <div class="week">{days_html}
   </div>
 
-  <div class="footer">Updated {generated_at.strftime('%b %-d, %Y \u00b7 %-I:%M %p %Z')}</div>
+  <div class="footer">Updated {updated_label}</div>
 </div>
 
 </body>
