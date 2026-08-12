@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static weekly family calendar page for a fridge-mounted old iPad (iOS 9). `generate_calendar.py` fetches 3 iCloud public ICS feeds, renders the current week (Mon–Sun) as a single self-contained HTML file at `output/index.html`, and a GitHub Actions workflow (`.github/workflows/update-calendar.yml`) runs it every 30 minutes and deploys the output to GitHub Pages.
+A static weekly family calendar page for a fridge-mounted old iPad (iOS 9). `generate_calendar.py` fetches 3 iCloud public ICS feeds and renders one self-contained HTML page per week (Mon–Sun) into `output/`: `index.html` is the current week, `w-1.html`/`w1.html` etc. cover `WEEKS_BACK` past and `WEEKS_FORWARD` future weeks, linked by prev/next arrows. A GitHub Actions workflow (`.github/workflows/update-calendar.yml`) runs it every 30 minutes and deploys the output to GitHub Pages.
 
 ## Commands
 
@@ -25,9 +25,11 @@ The three env vars are the iCloud feed URLs (`webcal://` swapped to `https://`).
 
 ## Architecture notes
 
-- `CALENDARS` at the top of `generate_calendar.py` defines each calendar's display name, colors (accent/tint/text), and the env var holding its feed URL. Colors must stay in sync with the legend rendered in the header. Adults = navy, Yuv = marigold, Ivaan = green.
+- `CALENDARS` at the top of `generate_calendar.py` defines each calendar's display name, colors (accent/tint/text), and the env var holding its feed URL. Colors must stay in sync with the legend rendered in the header. Adults = orange, Yuv = purple, Ivaan = green.
 - All times are rendered in `TIMEZONE` (`America/Chicago`). Floating-time events (no TZID) are treated as already-local, not UTC — this matches iCloud's behavior.
-- `recurring_ical_events` expands recurrences within the week window; events are grouped by day and sorted all-day-first, then chronological.
+- Each feed is fetched once across the whole multi-week range, then bucketed by day; `recurring_ical_events` expands recurrences. Per-day events sort all-day-first, then chronological.
+- The header shows current weather (°F and °C) for the coordinates in `WEATHER_LAT`/`WEATHER_LON` (Prosper, TX), fetched from Open-Meteo at build time with no API key; failure just drops the weather chip. Only old-Unicode emoji are used so they render on iOS 9.
+- Non-current-week pages use `<meta refresh>` with a redirect back to `index.html` so the fridge display self-recovers to the current week.
 
 ## Operational caveat
 

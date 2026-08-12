@@ -64,5 +64,12 @@ small commit every couple months to reset the clock.
   calendar's events just won't appear that cycle — the page still
   builds fine with the other two. Check the Actions tab logs if a
   calendar seems to be missing consistently.
-- Colors: Adults = navy, Yuv = marigold, Ivaan = green — matches the
+- Colors: Adults = orange, Yuv = purple, Ivaan = green — matches the
   legend in the header bar.
+- The ‹ › arrows in the header browse past/future weeks (4 back, 8
+  forward). Browsed weeks auto-return to the current week after 30
+  minutes, so the fridge never gets stuck on the wrong week.
+- The header shows current weather for Prosper, TX (75078) in both °F
+  and °C, fetched from Open-Meteo at build time — edit `WEATHER_LAT` /
+  `WEATHER_LON` in `generate_calendar.py` to change the location. It
+  only refreshes when the page rebuilds (every 30 minutes).

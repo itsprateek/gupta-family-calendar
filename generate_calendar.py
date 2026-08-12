@@ -5,8 +5,13 @@ calendar (webcal) feeds. Designed to run on a schedule via GitHub Actions
 and be deployed to GitHub Pages. The output HTML is intentionally plain
 (flexbox, no CSS Grid, no CSS custom properties, no JS) so it renders
 correctly on old Safari/Chrome on iOS 9.
+
+Outputs one page per week: index.html is the current week, w-1.html /
+w1.html etc. are past/future weeks, linked with prev/next arrows so the
+calendar can be browsed without any JavaScript.
 """
 
+import html as html_mod
 import os
 import sys
 from datetime import datetime, timedelta, date
@@ -18,22 +23,31 @@ import recurring_ical_events
 
 TIMEZONE = ZoneInfo("America/Chicago")
 
+# How many weeks of pages to generate around the current week.
+WEEKS_BACK = 4
+WEEKS_FORWARD = 8
+
+# Weather location: Prosper, TX 75078 (page is static, so weather is
+# fetched at build time from Open-Meteo — no API key needed).
+WEATHER_LAT = 33.2362
+WEATHER_LON = -96.8011
+
 # Each calendar: display name, accent color (hex), tint (light bg), env var
 # holding the public ICS URL (converted from webcal:// to https:// before
 # being stored as a GitHub Actions secret).
 CALENDARS = [
     {
         "name": "Adults",
-        "color": "#2C3E66",
-        "tint": "#EAEDF4",
-        "text": "#24344F",
+        "color": "#D9722C",
+        "tint": "#FBEEE2",
+        "text": "#8A4718",
         "env": "ADULTS_ICS_URL",
     },
     {
         "name": "Yuv",
-        "color": "#E8A33D",
-        "tint": "#FCF2E1",
-        "text": "#7A5620",
+        "color": "#7B5EA7",
+        "tint": "#F0EBF7",
+        "text": "#503B72",
         "env": "YUV_ICS_URL",
     },
     {
@@ -54,19 +68,81 @@ INK_SOFT = "#5C6B68"
 
 DAY_NAMES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
+# WMO weather codes -> (emoji, label). Only old-Unicode emoji that render
+# on iOS 9 (no iOS 9.1+ additions like the U+1F32x cloud series).
+WEATHER_CODES = {
+    0: ("☀️", "Clear"),
+    1: ("⛅", "Mostly clear"),
+    2: ("⛅", "Partly cloudy"),
+    3: ("☁️", "Overcast"),
+    45: ("☁️", "Fog"),
+    48: ("☁️", "Fog"),
+    51: ("☔", "Drizzle"),
+    53: ("☔", "Drizzle"),
+    55: ("☔", "Drizzle"),
+    56: ("☔", "Drizzle"),
+    57: ("☔", "Drizzle"),
+    61: ("☔", "Rain"),
+    63: ("☔", "Rain"),
+    65: ("☔", "Heavy rain"),
+    66: ("☔", "Freezing rain"),
+    67: ("☔", "Freezing rain"),
+    71: ("❄️", "Snow"),
+    73: ("❄️", "Snow"),
+    75: ("❄️", "Heavy snow"),
+    77: ("❄️", "Snow"),
+    80: ("☔", "Showers"),
+    81: ("☔", "Showers"),
+    82: ("☔", "Heavy showers"),
+    85: ("❄️", "Snow showers"),
+    86: ("❄️", "Snow showers"),
+    95: ("⚡", "Thunderstorm"),
+    96: ("⚡", "Thunderstorm"),
+    99: ("⚡", "Thunderstorm"),
+}
 
-def fetch_events_for_calendar(url, week_start, week_end):
-    """Fetch and expand recurring events for one calendar within the week.
-    Returns a list of (date, time_label, summary) tuples, or raises on
-    network/parse failure so the caller can handle it per-calendar."""
+
+def fetch_weather():
+    """Current conditions from Open-Meteo, or None if the fetch fails
+    (the page just renders without the weather chip that cycle)."""
+    try:
+        resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": WEATHER_LAT,
+                "longitude": WEATHER_LON,
+                "current_weather": "true",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        cw = resp.json()["current_weather"]
+        temp_c = float(cw["temperature"])
+        emoji, label = WEATHER_CODES.get(int(cw.get("weathercode", -1)), ("", ""))
+        return {
+            "temp_c": round(temp_c),
+            "temp_f": round(temp_c * 9 / 5 + 32),
+            "emoji": emoji,
+            "label": label,
+        }
+    except Exception as e:
+        print(f"WARNING: weather fetch failed: {e}", file=sys.stderr)
+        return None
+
+
+def fetch_events_for_calendar(url, range_start, range_end):
+    """Fetch and expand recurring events for one calendar within the date
+    range (inclusive). Returns a list of (date, time_label, summary)
+    tuples, or raises on network/parse failure so the caller can handle
+    it per-calendar."""
     resp = requests.get(url, timeout=20)
     resp.raise_for_status()
     cal = Calendar.from_ical(resp.text)
 
     # recurring_ical_events expects naive/aware datetimes; use midnight to
-    # midnight across the week, inclusive of the last day.
-    start_dt = datetime.combine(week_start, datetime.min.time(), tzinfo=TIMEZONE)
-    end_dt = datetime.combine(week_end + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
+    # midnight across the range, inclusive of the last day.
+    start_dt = datetime.combine(range_start, datetime.min.time(), tzinfo=TIMEZONE)
+    end_dt = datetime.combine(range_end + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
 
     occurrences = recurring_ical_events.of(cal).between(start_dt, end_dt)
 
@@ -90,15 +166,16 @@ def fetch_events_for_calendar(url, week_start, week_end):
             event_date = dtstart
             time_label = "All day"
 
-        if week_start <= event_date <= week_end:
+        if range_start <= event_date <= range_end:
             events.append((event_date, time_label, summary))
 
     return events
 
 
-def build_week_events(week_start, week_end):
-    """Returns dict: date -> list of (time_label, summary, color, tint, text)"""
-    by_day = {week_start + timedelta(days=i): [] for i in range(7)}
+def fetch_all_events(range_start, range_end):
+    """Fetch every calendar once across the whole page range.
+    Returns dict: date -> list of {time, summary, color, tint, text}."""
+    by_day = {}
 
     for cal_info in CALENDARS:
         url = os.environ.get(cal_info["env"])
@@ -106,13 +183,13 @@ def build_week_events(week_start, week_end):
             print(f"WARNING: no URL set for {cal_info['name']} ({cal_info['env']}), skipping", file=sys.stderr)
             continue
         try:
-            events = fetch_events_for_calendar(url, week_start, week_end)
+            events = fetch_events_for_calendar(url, range_start, range_end)
         except Exception as e:
             print(f"WARNING: failed to fetch {cal_info['name']}: {e}", file=sys.stderr)
             continue
 
         for event_date, time_label, summary in events:
-            by_day[event_date].append({
+            by_day.setdefault(event_date, []).append({
                 "time": time_label,
                 "summary": summary,
                 "color": cal_info["color"],
@@ -127,13 +204,17 @@ def build_week_events(week_start, week_end):
     return by_day
 
 
-def render_html(week_start, week_end, by_day, generated_at):
+def page_name(offset):
+    return "index.html" if offset == 0 else f"w{offset}.html"
+
+
+def render_html(week_start, week_end, by_day, generated_at, offset, weather):
     legend_items = "".join(
         f'<div class="legend-item"><span class="dot" style="background:{c["color"]}"></span>{c["name"]}</div>'
         for c in CALENDARS
     )
 
-    week_range_label = f"{week_start.strftime('%b %-d').upper()} \u2013 {week_end.strftime('%b %-d, %Y').upper()}"
+    week_range_label = f"{week_start.strftime('%b %-d').upper()} – {week_end.strftime('%b %-d, %Y').upper()}"
 
     today = datetime.now(TIMEZONE).date()
 
@@ -142,14 +223,14 @@ def render_html(week_start, week_end, by_day, generated_at):
         d = week_start + timedelta(days=i)
         is_today = " today" if d == today else ""
         events_html = ""
-        for ev in by_day[d]:
+        for ev in by_day.get(d, []):
             events_html += (
                 f'<div class="event" style="background:{ev["tint"]};'
                 f'border-left-color:{ev["color"]};color:{ev["text"]}">'
-                f'<span class="time">{ev["time"]}</span>{ev["summary"]}</div>'
+                f'<span class="time">{ev["time"]}</span>{html_mod.escape(ev["summary"])}</div>'
             )
         if not events_html:
-            events_html = '<div class="empty">\u2014</div>'
+            events_html = '<div class="empty">—</div>'
 
         day_columns.append(f"""
     <div class="day{is_today}">
@@ -159,15 +240,38 @@ def render_html(week_start, week_end, by_day, generated_at):
 
     days_html = "".join(day_columns)
 
-    # Computed outside the f-string: expression parts can't contain
-    # backslashes (·) until Python 3.12, and Actions runs 3.11.
+    # Prev/next week navigation (plain links, no JS). Arrows dim out at
+    # the edges of the generated range.
+    if offset > -WEEKS_BACK:
+        prev_html = f'<a class="nav-btn" href="{page_name(offset - 1)}">&#8249;</a>'
+    else:
+        prev_html = '<span class="nav-btn dim">&#8249;</span>'
+    if offset < WEEKS_FORWARD:
+        next_html = f'<a class="nav-btn" href="{page_name(offset + 1)}">&#8250;</a>'
+    else:
+        next_html = '<span class="nav-btn dim">&#8250;</span>'
+    today_html = '<a class="nav-btn today-btn" href="index.html">TODAY</a>' if offset != 0 else ""
+
+    if weather:
+        weather_html = (
+            f'<div class="weather">{weather["emoji"]} {weather["label"]} '
+            f'{weather["temp_f"]}°F / {weather["temp_c"]}°C</div>'
+        )
+    else:
+        weather_html = ""
+
+    # Current week reloads in place every 30 min; browsed weeks snap back
+    # to the current week instead, so the fridge never gets stuck on a
+    # past/future week.
+    refresh = "1800" if offset == 0 else "1800;url=index.html"
+
     updated_label = generated_at.strftime("%b %-d, %Y · %-I:%M %p %Z")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="1800">
+<meta http-equiv="refresh" content="{refresh}">
 <title>Family Weekly Planner</title>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -194,7 +298,8 @@ def render_html(week_start, week_end, by_day, generated_at):
     border-bottom: 1px solid {LINE_COLOR};
     background: {HEADER_COLOR};
   }}
-  .legend-left {{ display: flex; }}
+  .legend-left {{ display: flex; align-items: center; }}
+  .legend-right {{ display: flex; align-items: center; }}
   .legend-item {{
     display: flex;
     align-items: center;
@@ -210,12 +315,34 @@ def render_html(week_start, week_end, by_day, generated_at):
     margin-right: 8px;
     display: inline-block;
   }}
+  .weather {{
+    font-size: 14px;
+    font-weight: bold;
+    color: #E4EEED;
+    margin-right: 14px;
+    white-space: nowrap;
+  }}
   .week-range {{
     font-size: 14px;
     font-weight: bold;
     color: #E4EEED;
     letter-spacing: 0.5px;
+    margin: 0 12px;
+    white-space: nowrap;
   }}
+  .nav-btn {{
+    display: block;
+    padding: 4px 16px;
+    border: 1px solid #5E807C;
+    border-radius: 3px;
+    color: #E4EEED;
+    font-size: 18px;
+    font-weight: bold;
+    line-height: 1.2;
+    text-decoration: none;
+  }}
+  .nav-btn.dim {{ opacity: 0.35; }}
+  .today-btn {{ font-size: 12px; padding: 7px 12px; margin-left: 12px; letter-spacing: 1px; }}
 
   .week {{
     display: flex;
@@ -289,7 +416,7 @@ def render_html(week_start, week_end, by_day, generated_at):
 <div class="board">
   <div class="legend">
     <div class="legend-left">{legend_items}</div>
-    <div class="week-range">{week_range_label}</div>
+    <div class="legend-right">{weather_html}{prev_html}<div class="week-range">{week_range_label}</div>{next_html}{today_html}</div>
   </div>
 
   <div class="week">{days_html}
@@ -307,17 +434,24 @@ def render_html(week_start, week_end, by_day, generated_at):
 def main():
     now = datetime.now(TIMEZONE)
     today = now.date()
-    week_start = today - timedelta(days=today.weekday())  # Monday
-    week_end = week_start + timedelta(days=6)  # Sunday
+    current_week_start = today - timedelta(days=today.weekday())  # Monday
 
-    by_day = build_week_events(week_start, week_end)
-    html = render_html(week_start, week_end, by_day, now)
+    range_start = current_week_start - timedelta(weeks=WEEKS_BACK)
+    range_end = current_week_start + timedelta(weeks=WEEKS_FORWARD, days=6)
+
+    by_day = fetch_all_events(range_start, range_end)
+    weather = fetch_weather()
 
     os.makedirs("output", exist_ok=True)
-    with open("output/index.html", "w") as f:
-        f.write(html)
+    for offset in range(-WEEKS_BACK, WEEKS_FORWARD + 1):
+        week_start = current_week_start + timedelta(weeks=offset)
+        week_end = week_start + timedelta(days=6)
+        html = render_html(week_start, week_end, by_day, now, offset, weather)
+        with open(os.path.join("output", page_name(offset)), "w") as f:
+            f.write(html)
 
-    print(f"Generated calendar for {week_start} to {week_end}")
+    print(f"Generated {WEEKS_BACK + WEEKS_FORWARD + 1} weekly pages "
+          f"({range_start} to {range_end}), weather={'ok' if weather else 'unavailable'}")
 
 
 if __name__ == "__main__":
