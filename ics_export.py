@@ -10,7 +10,7 @@ Alerts
                    becomes "7am that morning")
   multi-day items (school breaks) alert before the first day only.
 
-Usage: python ics_export.py [events.json] [out.ics]
+Usage: python ics_export.py [events.json] [out.ics] [--who yuv|ivaan|adults] [--ids id1,id2] [--name NAME]
 
 generate_calendar.py also calls write_feed() on every build, which publishes
 the file next to the pages under a hard-to-guess name derived from a feed
@@ -55,14 +55,28 @@ def _hhmm(day, text):
     return datetime.combine(day, time(int(hh), int(mm)), tzinfo=famcal.TZ)
 
 
-def build_calendar(events_path="events.json"):
-    """Returns (ics_bytes, event_count, problems)."""
+def _matches_who(raw_who, who):
+    """True if an events.json "who" list belongs to the child/person `who`
+    ("yuv", "ivaan" or "adults"). A both-kids item belongs to each kid."""
+    if isinstance(raw_who, str):
+        raw_who = [raw_who]
+    keys = {str(w).lower().strip() for w in (raw_who or ["kids"])}
+    if who in ("yuv", "ivaan"):
+        return who in keys or bool(keys & {"kids", "both", "all", "family"})
+    if who == "adults":
+        return bool(keys & {"adults", "parents"})
+    return who in keys
+
+
+def build_calendar(events_path="events.json", only_ids=None, who=None, calname=CAL_NAME):
+    """Returns (ics_bytes, event_count, problems). only_ids / who narrow it down
+    (used to mail just the new events for one child)."""
     cal = Calendar()
     cal.add("prodid", "-//Gupta family calendar//school events//EN")
     cal.add("version", "2.0")
     cal.add("calscale", "GREGORIAN")
     cal.add("method", "PUBLISH")
-    cal.add("x-wr-calname", CAL_NAME)
+    cal.add("x-wr-calname", calname)
     cal.add("x-wr-timezone", "America/Chicago")
     cal.add("refresh-interval", timedelta(hours=1), parameters={"VALUE": "DURATION"})
     cal.add("x-published-ttl", "PT1H")
@@ -75,6 +89,10 @@ def build_calendar(events_path="events.json"):
     stamp = datetime.now(timezone.utc)
 
     for raw in data.get("events", []):
+        if only_ids is not None and raw.get("id") not in only_ids:
+            continue
+        if who and not _matches_who(raw.get("who"), who):
+            continue
         try:
             d0 = date.fromisoformat(raw["date"])
             d1 = date.fromisoformat(raw.get("end_date") or raw["date"])
@@ -140,11 +158,18 @@ def write_feed(out_dir, events_path="events.json", secret=None):
 
 
 if __name__ == "__main__":
-    src = sys.argv[1] if len(sys.argv) > 1 else "events.json"
-    dst = sys.argv[2] if len(sys.argv) > 2 else "school-events.ics"
-    blob, n, probs = build_calendar(src)
+    import argparse
+    ap = argparse.ArgumentParser(description="events.json -> .ics with alerts")
+    ap.add_argument("events", nargs="?", default="events.json")
+    ap.add_argument("out", nargs="?", default="school-events.ics")
+    ap.add_argument("--ids", help="comma-separated event ids to include (default: all)")
+    ap.add_argument("--who", choices=["yuv", "ivaan", "adults"], help="only this person's events")
+    ap.add_argument("--name", default=None, help="calendar name inside the file")
+    a = ap.parse_args()
+    ids = {x.strip() for x in a.ids.split(",") if x.strip()} if a.ids else None
+    blob, n, probs = build_calendar(a.events, ids, a.who, a.name or ("%s (%s)" % (CAL_NAME, a.who.title()) if a.who else CAL_NAME))
     for p in probs:
         print("WARNING: " + p, file=sys.stderr)
-    with open(dst, "wb") as f:
+    with open(a.out, "wb") as f:
         f.write(blob)
-    print("Wrote %d events to %s" % (n, dst))
+    print("Wrote %d events to %s" % (n, a.out))
