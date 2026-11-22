@@ -1,4 +1,222 @@
 {
-  "last_checked": null,
-  "events": []
+ "last_checked": "2026-11-21T22:45:00-06:00",
+ "events": [
+  {
+   "id": "2026-11-23-no-school-thanksgiving-yuv",
+   "title": "No School - Thanksgiving Break",
+   "date": "2026-11-23",
+   "end_date": "2026-11-27",
+   "who": [
+    "yuv"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-11-30-family-tradition-yuv",
+   "title": "Family tradition due",
+   "date": "2026-11-30",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "send a photo, video or note about a special family tradition",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-04-fairytale-ball-yuv",
+   "title": "Fairytale Ball",
+   "date": "2026-12-04",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "dress as a favorite fairytale or folktale character",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-07-candyland-lollipop-yuv",
+   "title": "Candy Land: Lollipop Lane",
+   "date": "2026-12-07",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-08-candyland-cupcakes-yuv",
+   "title": "Candy Land: Cupcakes",
+   "date": "2026-12-08",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-09-candyland-boardgames-yuv",
+   "title": "Candy Land: Board Games",
+   "date": "2026-12-09",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-09-gingerbread-supplies-yuv",
+   "title": "Gingerbread supplies due",
+   "date": "2026-12-09",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "only if you signed up to help",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-10-candyland-donut-yuv",
+   "title": "Candy Land: Donut Slopes",
+   "date": "2026-12-10",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-11-candyland-reindeer-yuv",
+   "title": "Candy Land: Reindeer Races",
+   "date": "2026-12-11",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "wear your antlers",
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-14-candyland-peppermint-yuv",
+   "title": "Candy Land: Peppermint Palace",
+   "date": "2026-12-14",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "wear red and white",
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-15-gingerbread-houses-yuv",
+   "title": "Gingerbread houses",
+   "date": "2026-12-15",
+   "end_date": null,
+   "start": "14:00",
+   "who": [
+    "yuv"
+   ],
+   "location": "Cafeteria",
+   "notes": "Candy Land day: wear holiday colors",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19) + Candy Land flyer"
+  },
+  {
+   "id": "2026-12-16-candyland-extra-recess-yuv",
+   "title": "Candy Land: Extra Recess",
+   "date": "2026-12-16",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "wear holiday flair",
+   "source": "Cockrell Candy Land flyer (in wk 15 email)"
+  },
+  {
+   "id": "2026-12-17-polar-express-yuv",
+   "title": "Polar Express & PJ Day",
+   "date": "2026-12-17",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "notes": "wear PJs, enjoy a cookie",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19) + Candy Land flyer"
+  },
+  {
+   "id": "2026-12-18-all-pro-dads-adults",
+   "title": "All Pro Dads",
+   "date": "2026-12-18",
+   "end_date": null,
+   "start": "07:15",
+   "end": "07:45",
+   "who": [
+    "adults"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-18-champion-assembly-yuv",
+   "title": "Champion Assembly",
+   "date": "2026-12-18",
+   "end_date": null,
+   "start": "08:00",
+   "end": "08:30",
+   "who": [
+    "yuv"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-18-winter-party-yuv",
+   "title": "Winter party",
+   "date": "2026-12-18",
+   "end_date": null,
+   "start": "09:00",
+   "who": [
+    "yuv"
+   ],
+   "notes": "Candy Land winter parties",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19) + Candy Land flyer"
+  },
+  {
+   "id": "2026-12-18-early-release-yuv",
+   "title": "Early release",
+   "date": "2026-12-18",
+   "end_date": null,
+   "start": "11:50",
+   "who": [
+    "yuv"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-21-no-school-winter-break-yuv",
+   "title": "No School - Winter Break",
+   "date": "2026-12-21",
+   "end_date": "2027-01-04",
+   "who": [
+    "yuv"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2027-01-05-first-day-back-yuv",
+   "title": "First day back at school",
+   "date": "2027-01-05",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2027-01-26-pto-storm-lab-yuv",
+   "title": "PTO assembly: Storm Lab",
+   "date": "2027-01-26",
+   "end_date": null,
+   "who": [
+    "yuv"
+   ],
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  }
+ ]
 }

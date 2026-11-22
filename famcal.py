@@ -8,6 +8,7 @@ Sources:
 
 A feed URL may be https://, webcal://, or file:// (file:// is handy for tests).
 """
+import difflib
 import json
 import os
 import re
@@ -174,6 +175,27 @@ def _norm(title):
     return re.sub(r"[^a-z0-9]", "", title.lower())
 
 
+def _similar_title(a, b):
+    na, nb = _norm(a), _norm(b)
+    if na == nb:
+        return True
+    short, long_ = sorted((na, nb), key=len)
+    if len(short) >= 8 and short in long_:
+        return True
+    return difflib.SequenceMatcher(None, na, nb).ratio() >= 0.8
+
+
+def _is_duplicate(a, b):
+    """Same day, same person (a both-kids item matches either kid), similar
+    title, and not clearly different times. Catches an email item that a
+    calendar feed already has under a slightly different name."""
+    if a["key"] != b["key"] and not ("kids" in (a["key"], b["key"]) and is_kid(a) and is_kid(b)):
+        return False
+    if a["start"] and b["start"] and abs((a["start"] - b["start"]).total_seconds()) > 30 * 60:
+        return False
+    return _similar_title(a["title"], b["title"])
+
+
 def _sort_key(e):
     return (e["date"], 0 if e["all_day"] else 1,
             e["start"].timetz().replace(tzinfo=None) if e["start"] else datetime.min.time(),
@@ -200,13 +222,15 @@ def load_range(range_start, range_end, events_path="events.json"):
     events.extend(extra)
     errors.extend(problems)
 
-    seen, deduped = set(), []
+    deduped, by_date = [], {}
     for e in sorted(events, key=lambda e: (e["source"] == "email",)):  # calendar wins ties
-        sig = (e["date"], _norm(e["title"]), e["key"])
-        if sig in seen:
+        dup = next((o for o in by_date.get(e["date"], []) if _is_duplicate(e, o)), None)
+        if dup is not None:
+            if e.get("notes") and not dup.get("notes"):
+                dup["notes"] = e["notes"]  # keep the "wear red" detail from the email copy
             continue
-        seen.add(sig)
         deduped.append(e)
+        by_date.setdefault(e["date"], []).append(e)
     deduped.sort(key=_sort_key)
     return deduped, errors, ok
 
