@@ -1,0 +1,7 @@
+{"last_checked": "2026-11-21T17:30:00-06:00",
+ "events": [
+  {"id":"nl-1124-spirit","title":"Spirit Day","date":"2026-11-24","who":["yuv"],"notes":"wear red","source":"Cockrell newsletter 2026-11-20"},
+  {"id":"nl-1124-book","title":"Library books due","date":"2026-11-24","who":["yuv"],"source":"Cockrell newsletter 2026-11-20"},
+  {"id":"pdf-1203-concert","title":"Winter concert","date":"2026-12-03","start":"18:30","end":"19:30","who":["yuv"],"location":"Cockrell cafetorium","source":"PTA flyer"},
+  {"id":"bad-row","title":"Broken row","date":"not-a-date","who":["yuv"]}
+ ]}

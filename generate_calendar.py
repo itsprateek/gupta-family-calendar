@@ -9,57 +9,45 @@ correctly on old Safari/Chrome on iOS 9.
 Outputs one page per week: index.html is the current week, w-1.html /
 w1.html etc. are past/future weeks, linked with prev/next arrows so the
 calendar can be browsed without any JavaScript.
+
+v2 adds, on the current-week page only: Today / Tomorrow highlight cards,
+a conflicts card, and a "Coming up - kids" strip. Events that the email
+intake task put in events.json are merged in and tagged "email". Calendar
+loading and conflict logic live in famcal.py (shared with notify.py).
 """
 
 import html as html_mod
 import os
 import sys
-from datetime import datetime, timedelta, date
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 
 import requests
-from icalendar import Calendar
-import recurring_ical_events
 
-TIMEZONE = ZoneInfo("America/Chicago")
+import famcal
+from famcal import PEOPLE, fmt_range, fmt_time, is_kid
+
+TIMEZONE = famcal.TZ
 
 # How many weeks of pages to generate around the current week.
 WEEKS_BACK = 4
 WEEKS_FORWARD = 8
+
+# Current-week page layout limits (so everything fits on one iPad mini screen).
+MAX_PER_DAY = 6
+UPCOMING_DAYS = 14
+UPCOMING_GROUPS = 7
+UPCOMING_PER_GROUP = 3
 
 # Weather location: Prosper, TX 75078 (page is static, so weather is
 # fetched at build time from Open-Meteo — no API key needed).
 WEATHER_LAT = 33.2362
 WEATHER_LON = -96.8011
 
-# Each calendar: display name, accent color (hex), tint (light bg), env var
-# holding the public ICS URL (converted from webcal:// to https:// before
-# being stored as a GitHub Actions secret).
+# Feed calendars (legend + show/hide toggles), built from famcal.PEOPLE so
+# colors and env var names live in one place.
 CALENDARS = [
-    {
-        "name": "Adults",
-        "key": "a",
-        "color": "#D9722C",
-        "tint": "#FBEEE2",
-        "text": "#8A4718",
-        "env": "ADULTS_ICS_URL",
-    },
-    {
-        "name": "Yuv",
-        "key": "y",
-        "color": "#7B5EA7",
-        "tint": "#F0EBF7",
-        "text": "#503B72",
-        "env": "YUV_ICS_URL",
-    },
-    {
-        "name": "Ivaan",
-        "key": "i",
-        "color": "#4E9A63",
-        "tint": "#EBF4EC",
-        "text": "#2E5F3B",
-        "env": "IVAAN_ICS_URL",
-    },
+    {"name": PEOPLE[k]["label"], "key": PEOPLE[k]["short"], "color": PEOPLE[k]["color"]}
+    for k in famcal.FEED_KEYS
 ]
 
 # Canonical order for the visible-calendar suffix in page filenames.
@@ -71,8 +59,10 @@ PANEL_COLOR = "#FFFFFF"
 LINE_COLOR = "#DCE4E2"
 INK_COLOR = "#1B2B29"
 INK_SOFT = "#5C6B68"
+ALERT_COLOR = "#B3261E"
 
 DAY_NAMES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 # WMO weather codes -> (emoji, label). Only old-Unicode emoji that render
 # on iOS 9 (no iOS 9.1+ additions like the U+1F32x cloud series).
@@ -108,6 +98,10 @@ WEATHER_CODES = {
 }
 
 
+def esc(s):
+    return html_mod.escape(s, quote=True)
+
+
 def fetch_weather():
     """Current conditions from Open-Meteo, or None if the fetch fails
     (the page just renders without the weather chip that cycle)."""
@@ -136,81 +130,6 @@ def fetch_weather():
         return None
 
 
-def fetch_events_for_calendar(url, range_start, range_end):
-    """Fetch and expand recurring events for one calendar within the date
-    range (inclusive). Returns a list of (date, time_label, summary)
-    tuples, or raises on network/parse failure so the caller can handle
-    it per-calendar."""
-    resp = requests.get(url, timeout=20)
-    resp.raise_for_status()
-    cal = Calendar.from_ical(resp.text)
-
-    # recurring_ical_events expects naive/aware datetimes; use midnight to
-    # midnight across the range, inclusive of the last day.
-    start_dt = datetime.combine(range_start, datetime.min.time(), tzinfo=TIMEZONE)
-    end_dt = datetime.combine(range_end + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
-
-    occurrences = recurring_ical_events.of(cal).between(start_dt, end_dt)
-
-    events = []
-    for ev in occurrences:
-        summary = str(ev.get("summary", "Untitled event"))
-        dtstart = ev.get("dtstart").dt
-
-        if isinstance(dtstart, datetime):
-            if dtstart.tzinfo is None:
-                # Floating time (no TZID) - iCloud typically means this in
-                # the calendar's local time already, so attach our target
-                # timezone directly rather than assuming UTC.
-                local_dt = dtstart.replace(tzinfo=TIMEZONE)
-            else:
-                local_dt = dtstart.astimezone(TIMEZONE)
-            event_date = local_dt.date()
-            time_label = local_dt.strftime("%-I:%M %p")
-        else:
-            # all-day event (date, not datetime)
-            event_date = dtstart
-            time_label = "All day"
-
-        if range_start <= event_date <= range_end:
-            events.append((event_date, time_label, summary))
-
-    return events
-
-
-def fetch_all_events(range_start, range_end):
-    """Fetch every calendar once across the whole page range.
-    Returns dict: date -> list of {time, summary, color, tint, text}."""
-    by_day = {}
-
-    for cal_info in CALENDARS:
-        url = os.environ.get(cal_info["env"])
-        if not url:
-            print(f"WARNING: no URL set for {cal_info['name']} ({cal_info['env']}), skipping", file=sys.stderr)
-            continue
-        try:
-            events = fetch_events_for_calendar(url, range_start, range_end)
-        except Exception as e:
-            print(f"WARNING: failed to fetch {cal_info['name']}: {e}", file=sys.stderr)
-            continue
-
-        for event_date, time_label, summary in events:
-            by_day.setdefault(event_date, []).append({
-                "time": time_label,
-                "summary": summary,
-                "key": cal_info["key"],
-                "color": cal_info["color"],
-                "tint": cal_info["tint"],
-                "text": cal_info["text"],
-            })
-
-    # Sort each day's events: all-day first, then chronological
-    for d, items in by_day.items():
-        items.sort(key=lambda x: (x["time"] != "All day", x["time"]))
-
-    return by_day
-
-
 def page_name(offset, visible):
     """visible is the set of calendar keys shown on this page. All-visible
     pages keep the plain names (index.html, w1.html) so existing bookmarks
@@ -224,7 +143,147 @@ def page_name(offset, visible):
     return f"{base}{suffix}.html"
 
 
-def render_html(week_start, week_end, by_day, generated_at, offset, weather, visible):
+# ------------------------------------------------------------ visibility
+
+def is_visible(ev, visible):
+    """Feed events follow their legend toggle. Email items for both kids show
+    while either kid is visible."""
+    short = PEOPLE[ev["key"]]["short"]
+    if short == "k":
+        return "y" in visible or "i" in visible
+    return short in visible
+
+
+def time_label(ev):
+    return "All day" if ev["all_day"] else ev["start"].strftime("%-I:%M %p")
+
+
+def short_date(d):
+    return f"{SHORT_DAYS[d.weekday()]} {d.strftime('%b')} {d.day}"
+
+
+# ------------------------------------------------------- v2 page pieces
+
+def week_chip(ev, conflicted):
+    p = PEOPLE[ev["key"]]
+    cls = "event cf" if conflicted else "event"
+    warn = "&#9888; " if conflicted else ""
+    badge = ' <span class="mail">email</span>' if ev["source"] == "email" else ""
+    return (
+        f'<div class="{cls}" style="background:{p["tint"]};'
+        f'border-left-color:{p["color"]};color:{p["text"]}">'
+        f'<span class="time">{warn}{time_label(ev)}</span>{esc(ev["title"])}{badge}</div>'
+    )
+
+
+def card_item(ev, conflicted):
+    p = PEOPLE[ev["key"]]
+    when = "" if ev["all_day"] else fmt_range(ev) + " "
+    bits = [
+        f'<span class="dot" style="background:{p["color"]}"></span>',
+        f'<b style="color:{p["text"]}">{esc(p["label"])}</b> ',
+        f'<span class="soft">{when}</span>{esc(ev["title"])}',
+    ]
+    if ev["notes"]:
+        bits.append(f' <i class="note">&mdash; {esc(ev["notes"])}</i>')
+    if ev["location"]:
+        bits.append(f' <span class="soft">@ {esc(ev["location"])}</span>')
+    if conflicted:
+        bits.append(' <span class="warn">&#9888; overlaps</span>')
+    return f'<li class="{"cf" if conflicted else ""}">{"".join(bits)}</li>'
+
+
+def day_card(title, day, events, conflicted_ids, visible):
+    todays = [e for e in events if e["date"] == day and is_visible(e, visible)]
+    kids = [e for e in todays if is_kid(e)]
+    adults = [e for e in todays if not is_kid(e)]
+    out = [f'<div class="card"><h2>{title} <span>{short_date(day)}</span></h2>']
+    if kids:
+        out.append("<ul>" + "".join(card_item(e, id(e) in conflicted_ids) for e in kids[:5]) + "</ul>")
+        if len(kids) > 5:
+            out.append(f'<p class="none">+{len(kids) - 5} more</p>')
+    else:
+        out.append('<p class="none">Nothing on for the kids.</p>')
+    if adults:
+        names = "; ".join(
+            ("" if e["all_day"] else fmt_time(e["start"]) + " ") + e["title"] for e in adults[:3]
+        )
+        extra = f" +{len(adults) - 3} more" if len(adults) > 3 else ""
+        out.append(f'<p class="adults"><b>Adults:</b> {esc(names)}{extra}</p>')
+    out.append("</div>")
+    return "".join(out)
+
+
+def build_extras(today, events, conflicts, visible):
+    """Everything that depends on today's date and the show/hide selection:
+    conflict markers, highlight band, and the kids' upcoming strip."""
+    shown = [(a, b) for a, b in conflicts if is_visible(a, visible) and is_visible(b, visible)]
+    conflicted_ids = {id(x) for pair in shown for x in pair}
+    tomorrow = today + timedelta(days=1)
+
+    soon = [(a, b) for a, b in shown if today <= a["date"] <= today + timedelta(days=7)]
+    if soon:
+        rows = "".join(
+            f'<li><b>{short_date(a["date"])}</b> {esc(a["title"])} <i>{fmt_range(a)}</i> '
+            f'vs {esc(b["title"])} <i>{fmt_range(b)}</i></li>'
+            for a, b in soon[:4]
+        )
+        more = f'<p class="none">+{len(soon) - 4} more</p>' if len(soon) > 4 else ""
+        conflict_card = (
+            f'<div class="card alert"><h2>&#9888; Conflicts <span>next 7 days</span></h2>'
+            f"<ul>{rows}</ul>{more}</div>"
+        )
+    else:
+        conflict_card = (
+            '<div class="card ok"><h2>Conflicts <span>next 7 days</span></h2>'
+            '<p class="none">All clear &#10003;</p></div>'
+        )
+    band = (
+        day_card("Today", today, events, conflicted_ids, visible)
+        + day_card("Tomorrow", tomorrow, events, conflicted_ids, visible)
+        + conflict_card
+    )
+
+    up_start = tomorrow + timedelta(days=1)
+    up_end = today + timedelta(days=UPCOMING_DAYS)
+    upcoming = famcal.collapse_runs(
+        [e for e in events if is_kid(e) and up_start <= e["date"] <= up_end and is_visible(e, visible)]
+    )
+    groups, order = {}, []
+    for e in upcoming:
+        if e["date"] not in groups:
+            groups[e["date"]] = []
+            order.append(e["date"])
+        groups[e["date"]].append(e)
+    parts = []
+    for d in order[:UPCOMING_GROUPS]:
+        chips = ""
+        for e in groups[d][:UPCOMING_PER_GROUP]:
+            p = PEOPLE[e["key"]]
+            warn = "&#9888; " if id(e) in conflicted_ids else ""
+            when = "" if e["all_day"] else fmt_time(e["start"]) + " "
+            thru = ""
+            if e.get("last") and e["last"] != e["date"]:
+                thru = f' <span class="soft">thru {short_date(e["last"])}</span>'
+            badge = ' <span class="mail">email</span>' if e["source"] == "email" else ""
+            chips += (
+                f'<div class="uchip" style="background:{p["tint"]};border-left-color:{p["color"]};'
+                f'color:{p["text"]}"><b>{warn}{when}</b>{esc(e["title"])}{thru}{badge}</div>'
+            )
+        if len(groups[d]) > UPCOMING_PER_GROUP:
+            chips += f'<div class="soft">+{len(groups[d]) - UPCOMING_PER_GROUP} more</div>'
+        parts.append(f'<div class="ugroup"><div class="uhead">{short_date(d)}</div>{chips}</div>')
+    if not parts:
+        parts.append('<p class="none">Nothing planned for the kids yet.</p>')
+    strip = '<div class="utitle">Kids<br>coming up</div>' + "".join(parts)
+
+    return {"conflicted_ids": conflicted_ids, "band": band, "strip": strip}
+
+
+# ---------------------------------------------------------------- render
+
+def render_html(week_start, week_end, by_day, generated_at, offset, weather, visible,
+                today, extras, errors):
     # Legend names are toggle links: tapping one links to this same week
     # with that calendar's visibility flipped (no JS, works on iOS 9).
     legend_items = ""
@@ -239,21 +298,18 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
 
     week_range_label = f"{week_start.strftime('%b %-d').upper()} – {week_end.strftime('%b %-d, %Y').upper()}"
 
-    today = datetime.now(TIMEZONE).date()
+    compact = offset == 0  # current week gets the highlight band + upcoming strip
+    conflicted_ids = extras["conflicted_ids"]
 
     day_columns = []
     for i in range(7):
         d = week_start + timedelta(days=i)
         is_today = " today" if d == today else ""
-        events_html = ""
-        for ev in by_day.get(d, []):
-            if ev["key"] not in visible:
-                continue
-            events_html += (
-                f'<div class="event" style="background:{ev["tint"]};'
-                f'border-left-color:{ev["color"]};color:{ev["text"]}">'
-                f'<span class="time">{ev["time"]}</span>{html_mod.escape(ev["summary"])}</div>'
-            )
+        todays = [e for e in by_day.get(d, []) if is_visible(e, visible)]
+        shown = todays[:MAX_PER_DAY] if compact else todays
+        events_html = "".join(week_chip(e, id(e) in conflicted_ids) for e in shown)
+        if compact and len(todays) > MAX_PER_DAY:
+            events_html += f'<div class="more">+{len(todays) - MAX_PER_DAY} more</div>'
         if not events_html:
             events_html = '<div class="empty">—</div>'
 
@@ -294,40 +350,80 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
 
     updated_label = generated_at.strftime("%b %-d, %Y · %-I:%M %p %Z")
 
-    html = f"""<!DOCTYPE html>
+    warn_html = ""
+    band_html = ""
+    upcoming_html = ""
+    if compact:
+        if errors:
+            warn_html = f'<div class="warnbar">Heads up: {esc(" | ".join(errors))}</div>'
+        band_html = f'<div class="band">{extras["band"]}</div>'
+        upcoming_html = f'<div class="upcoming">{extras["strip"]}</div>'
+
+    css = CSS
+    for token, value in {
+        "@BG@": BG_COLOR, "@PANEL@": PANEL_COLOR, "@INK@": INK_COLOR, "@SOFT@": INK_SOFT,
+        "@LINE@": LINE_COLOR, "@HEADER@": HEADER_COLOR, "@ALERT@": ALERT_COLOR,
+    }.items():
+        css = css.replace(token, value)
+
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="refresh" content="{refresh}">
 <title>Family Weekly Planner</title>
-<style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+<style>{css}</style>
+</head>
+<body class="{"compact" if compact else ""}">
 
-  body {{
-    background: {BG_COLOR};
+<div class="board">
+  <div class="legend">
+    <div class="legend-left">{legend_items}</div>
+    <div class="legend-right">{weather_html}{prev_html}<div class="week-range">{week_range_label}</div>{next_html}{today_html}</div>
+  </div>
+  {warn_html}
+  {band_html}
+  <div class="week">{days_html}
+  </div>
+  {upcoming_html}
+  <div class="footer">Updated {updated_label}</div>
+</div>
+
+</body>
+</html>
+"""
+
+
+CSS = """
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: @BG@;
     font-family: Helvetica, Arial, sans-serif;
-    color: {INK_COLOR};
+    color: @INK@;
     padding: 20px;
-  }}
+  }
+  body.compact { padding: 10px; }
 
-  .board {{
-    background: {PANEL_COLOR};
+  .board {
+    background: @PANEL@;
     border-radius: 4px;
     overflow: hidden;
-  }}
+  }
 
-  .legend {{
+  .legend {
     display: flex;
     -webkit-box-orient: horizontal;
     align-items: center;
     justify-content: space-between;
     padding: 12px 24px;
-    border-bottom: 1px solid {LINE_COLOR};
-    background: {HEADER_COLOR};
-  }}
-  .legend-left {{ display: flex; align-items: center; }}
-  .legend-right {{ display: flex; align-items: center; }}
-  .legend-item {{
+    border-bottom: 1px solid @LINE@;
+    background: @HEADER@;
+  }
+  body.compact .legend { padding: 8px 20px; }
+  .legend-left { display: flex; align-items: center; }
+  .legend-right { display: flex; align-items: center; }
+  .legend-item {
     display: flex;
     align-items: center;
     font-size: 14px;
@@ -336,34 +432,34 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
     margin-right: 20px;
     padding: 6px 0;
     text-decoration: none;
-  }}
-  .legend-item.off {{
+  }
+  .legend-item.off {
     opacity: 0.45;
     text-decoration: line-through;
-  }}
-  .dot {{
+  }
+  .dot {
     width: 11px;
     height: 11px;
     border-radius: 50%;
     margin-right: 8px;
     display: inline-block;
-  }}
-  .weather {{
+  }
+  .weather {
     font-size: 14px;
     font-weight: bold;
     color: #E4EEED;
     margin-right: 14px;
     white-space: nowrap;
-  }}
-  .week-range {{
+  }
+  .week-range {
     font-size: 14px;
     font-weight: bold;
     color: #E4EEED;
     letter-spacing: 0.5px;
     margin: 0 12px;
     white-space: nowrap;
-  }}
-  .nav-btn {{
+  }
+  .nav-btn {
     display: block;
     padding: 4px 16px;
     border: 1px solid #5E807C;
@@ -373,47 +469,81 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
     font-weight: bold;
     line-height: 1.2;
     text-decoration: none;
-  }}
-  .nav-btn.dim {{ opacity: 0.35; }}
-  .today-btn {{ font-size: 12px; padding: 7px 12px; margin-left: 12px; letter-spacing: 1px; }}
+  }
+  .nav-btn.dim { opacity: 0.35; }
+  .today-btn { font-size: 12px; padding: 7px 12px; margin-left: 12px; letter-spacing: 1px; }
 
-  .week {{
-    display: flex;
-  }}
-  .day {{
+  .warnbar { background: #FFF3CD; color: #7A5A00; padding: 4px 20px; font-size: 12px; }
+
+  /* v2: highlight band (current week only) */
+  .band { display: flex; padding: 8px 8px 4px 8px; border-bottom: 1px solid @LINE@; }
+  .card {
     flex: 1;
-    border-right: 1px solid {LINE_COLOR};
+    min-width: 0;
+    margin: 0 4px;
+    padding: 7px 10px;
+    border: 1px solid @LINE@;
+    border-radius: 4px;
+    height: 150px;
+    overflow: hidden;
+    background: #FAFBFA;
+  }
+  .card h2 { font-size: 13px; color: @HEADER@; margin-bottom: 4px; }
+  .card h2 span { font-weight: normal; color: @SOFT@; font-size: 12px; }
+  .card ul { list-style: none; }
+  .card li { font-size: 12.5px; line-height: 1.25; margin-bottom: 3px; }
+  .card li.cf { background: #FDECEA; border-radius: 3px; }
+  .card .dot { width: 8px; height: 8px; margin-right: 4px; }
+  .soft { color: @SOFT@; font-size: 11.5px; }
+  .note { color: #8A4B00; }
+  .warn { color: @ALERT@; font-weight: bold; font-size: 11.5px; }
+  .none { font-size: 12.5px; color: @SOFT@; margin: 2px 0; }
+  .adults { font-size: 11.5px; margin-top: 4px; padding-top: 3px; border-top: 1px solid @LINE@; }
+  .card.alert { background: #FFF6F5; border-color: #E8B4AF; }
+  .card.alert h2 { color: @ALERT@; }
+  .card.ok h2 { color: #2E5F3B; }
+
+  .week {
+    display: flex;
+  }
+  .day {
+    flex: 1;
+    border-right: 1px solid @LINE@;
     min-height: 560px;
     display: flex;
     flex-direction: column;
-  }}
-  .day:last-child {{ border-right: none; }}
+  }
+  body.compact .day { min-height: 0; }
+  .day:last-child { border-right: none; }
 
-  .day-head {{
+  .day-head {
     padding: 14px 8px 10px;
     text-align: center;
-    border-bottom: 1px solid {LINE_COLOR};
-  }}
-  .day-name {{
+    border-bottom: 1px solid @LINE@;
+  }
+  body.compact .day-head { padding: 6px 8px 5px; }
+  .day-name {
     font-size: 12px;
     font-weight: bold;
     letter-spacing: 1px;
-    color: {INK_SOFT};
-  }}
-  .day-num {{
+    color: @SOFT@;
+  }
+  .day-num {
     font-size: 24px;
     font-weight: bold;
     margin-top: 2px;
-  }}
-  .day.today .day-head {{ background: {HEADER_COLOR}; }}
-  .day.today .day-name {{ color: #B9CFCC; }}
-  .day.today .day-num {{ color: #FFFFFF; }}
+  }
+  body.compact .day-num { font-size: 20px; margin-top: 0; }
+  .day.today .day-head { background: @HEADER@; }
+  .day.today .day-name { color: #B9CFCC; }
+  .day.today .day-num { color: #FFFFFF; }
 
-  .events {{
+  .events {
     padding: 10px 8px;
     flex: 1;
-  }}
-  .event {{
+  }
+  body.compact .events { padding: 6px 6px; height: 292px; overflow: hidden; flex: none; }
+  .event {
     border-radius: 3px;
     padding: 6px 8px;
     font-size: 13px;
@@ -421,58 +551,87 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
     font-weight: 500;
     border-left: 3px solid;
     margin-bottom: 6px;
-  }}
-  .event .time {{
+  }
+  body.compact .event { padding: 4px 6px; margin-bottom: 4px; font-size: 12.5px; line-height: 1.25; }
+  .event.cf { outline: 2px solid #D93025; }
+  .event .time {
     display: block;
     font-size: 10.5px;
     font-weight: bold;
     margin-bottom: 1px;
-  }}
-  .empty {{
-    color: {LINE_COLOR};
+  }
+  .mail {
+    font-size: 9px;
+    text-transform: uppercase;
+    color: @SOFT@;
+    border: 1px solid #B8C4C1;
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+  .more { font-size: 11px; color: @SOFT@; padding: 1px 3px; }
+  .empty {
+    color: @LINE@;
     text-align: center;
     padding-top: 20px;
     font-size: 13px;
-  }}
+  }
 
-  .footer {{
+  /* v2: kids' upcoming strip (current week only) */
+  .upcoming {
+    display: flex;
+    padding: 6px 8px;
+    height: 112px;
+    overflow: hidden;
+    border-top: 1px solid @LINE@;
+    background: #FAFBFA;
+  }
+  .utitle { width: 72px; font-size: 12px; font-weight: bold; color: @HEADER@; padding-top: 2px; }
+  .ugroup { width: 138px; margin-right: 8px; }
+  .uhead { font-size: 10.5px; font-weight: bold; color: @SOFT@; text-transform: uppercase; margin-bottom: 2px; }
+  .uchip {
+    border-left: 3px solid;
+    border-radius: 3px;
+    padding: 2px 5px;
+    margin-bottom: 3px;
+    font-size: 11.5px;
+    line-height: 1.2;
+  }
+
+  .footer {
     padding: 10px 24px;
     font-size: 11px;
-    color: {INK_SOFT};
-    border-top: 1px solid {LINE_COLOR};
+    color: @SOFT@;
+    border-top: 1px solid @LINE@;
     background: #FAFBFA;
-  }}
-</style>
-</head>
-<body>
-
-<div class="board">
-  <div class="legend">
-    <div class="legend-left">{legend_items}</div>
-    <div class="legend-right">{weather_html}{prev_html}<div class="week-range">{week_range_label}</div>{next_html}{today_html}</div>
-  </div>
-
-  <div class="week">{days_html}
-  </div>
-
-  <div class="footer">Updated {updated_label}</div>
-</div>
-
-</body>
-</html>
+  }
+  body.compact .footer { padding: 5px 20px; }
 """
-    return html
 
 
 def main():
-    now = datetime.now(TIMEZONE)
+    now = famcal.now_local()
+    override = os.environ.get("CAL_TODAY")  # YYYY-MM-DD, for local testing only
+    if override:
+        now = datetime.fromisoformat(override + "T08:00:00").replace(tzinfo=TIMEZONE)
     today = now.date()
     current_week_start = today - timedelta(days=today.weekday())  # Monday
 
     range_start = current_week_start - timedelta(weeks=WEEKS_BACK)
     range_end = current_week_start + timedelta(weeks=WEEKS_FORWARD, days=6)
 
-    by_day = fetch_all_events(range_start, range_end)
+    events, errors, feeds_ok = famcal.load_range(
+        range_start, range_end, os.environ.get("EVENTS_JSON", "events.json")
+    )
+    for e in errors:
+        print(f"WARNING: {e}", file=sys.stderr)
+    if feeds_ok == 0:
+        print("ERROR: all calendar feeds failed; keeping the previously deployed page.", file=sys.stderr)
+        sys.exit(1)
+
+    by_day = {}
+    for ev in events:
+        by_day.setdefault(ev["date"], []).append(ev)
+    conflicts = famcal.find_conflicts(events)
     weather = fetch_weather()
 
     # One page per week per show/hide combination (2^3 = 8 combos), so the
@@ -481,20 +640,25 @@ def main():
         frozenset(k for j, k in enumerate(KEY_ORDER) if bits >> j & 1)
         for bits in range(2 ** len(CALENDARS))
     ]
+    extras_by_combo = {v: build_extras(today, events, conflicts, v) for v in combos}
 
-    os.makedirs("output", exist_ok=True)
+    out_dir = sys.argv[1] if len(sys.argv) > 1 else "output"
+    os.makedirs(out_dir, exist_ok=True)
     pages = 0
     for offset in range(-WEEKS_BACK, WEEKS_FORWARD + 1):
         week_start = current_week_start + timedelta(weeks=offset)
         week_end = week_start + timedelta(days=6)
         for visible in combos:
-            html = render_html(week_start, week_end, by_day, now, offset, weather, visible)
-            with open(os.path.join("output", page_name(offset, visible)), "w") as f:
-                f.write(html)
+            page = render_html(week_start, week_end, by_day, now, offset, weather, visible,
+                               today, extras_by_combo[visible], errors)
+            with open(os.path.join(out_dir, page_name(offset, visible)), "w") as f:
+                f.write(page)
             pages += 1
 
     print(f"Generated {pages} pages ({range_start} to {range_end}), "
-          f"weather={'ok' if weather else 'unavailable'}")
+          f"weather={'ok' if weather else 'unavailable'}, "
+          f"{sum(1 for e in events if e['source'] == 'email')} email events, "
+          f"{len(conflicts)} conflicts")
 
 
 if __name__ == "__main__":

@@ -4,33 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static weekly family calendar page for a fridge-mounted old iPad (iOS 9). `generate_calendar.py` fetches 3 iCloud public ICS feeds and renders one self-contained HTML page per week (Mon–Sun) per show/hide combination into `output/`. `index.html` is the current week with all calendars visible; `w-1.html`/`w1.html` etc. cover `WEEKS_BACK` past and `WEEKS_FORWARD` future weeks, and suffixed variants like `w1-ai.html` show only the named calendars (keys `a`/`y`/`i`, `-none` = all hidden). Legend names and week arrows are plain links between these pre-rendered pages — that's how toggling and navigation work with zero JavaScript. A GitHub Actions workflow (`.github/workflows/update-calendar.yml`) runs it every 30 minutes and deploys the output to GitHub Pages.
+A static weekly family calendar page for a fridge-mounted old iPad (iOS 9). `generate_calendar.py` fetches 3 iCloud public ICS feeds (plus `events.json`, see below) and renders one self-contained HTML page per week (Mon–Sun) per show/hide combination into `output/`. `index.html` is the current week with all calendars visible; `w-1.html`/`w1.html` etc. cover `WEEKS_BACK` past and `WEEKS_FORWARD` future weeks, and suffixed variants like `w1-ai.html` show only the named calendars (keys `a`/`y`/`i`, `-none` = all hidden). Legend names and week arrows are plain links between these pre-rendered pages — that's how toggling and navigation work with zero JavaScript. A GitHub Actions workflow (`.github/workflows/update-calendar.yml`) runs it every 30 minutes and deploys the output to GitHub Pages.
+
+The current-week pages (`index*.html`) also show a highlight band (Today, Tomorrow, Conflicts) above the week grid and a "Kids coming up" strip below it. Browsed weeks keep the plain layout.
+
+A second workflow, `.github/workflows/notify.yml`, runs `notify.py`, which sends ntfy phone notifications: the evening before (7pm Central, only if the kids have something or there is a conflict) and a Friday 4pm digest of the kids' next 10 days with conflicts.
 
 ## Commands
 
-There are no tests or linters. To run the generator locally:
+There are no linters. To run the generator locally:
 
 ```bash
-pip install requests icalendar recurring-ical-events tzdata
+pip install -r requirements.txt
 ADULTS_ICS_URL=... YUV_ICS_URL=... IVAAN_ICS_URL=... python generate_calendar.py
 open output/index.html
 ```
 
-The three env vars are the iCloud feed URLs (`webcal://` swapped to `https://`). In CI they come from repository secrets of the same names. A missing or failing feed is logged as a warning and skipped — the page still builds with the remaining calendars.
+The three env vars are the iCloud feed URLs (`webcal://` swapped to `https://`; `file://` paths also work). In CI they come from repository secrets of the same names. A missing or failing feed is logged as a warning and skipped, and the current-week page shows a yellow "Heads up" bar. If ALL feeds fail the script exits 1 so the previously deployed page stays up.
+
+Offline test with sample data (week of Nov 23, 2026 contains an overlap, an all-day break, email events and a bad row on purpose):
+
+```bash
+export ADULTS_ICS_URL=file://$PWD/sample/adults.ics YUV_ICS_URL=file://$PWD/sample/yuv.ics IVAAN_ICS_URL=file://$PWD/sample/ivaan.ics EVENTS_JSON=sample/events.json
+CAL_TODAY=2026-11-24 python generate_calendar.py /tmp/out
+python notify.py --mode friday --today 2026-11-20 --dry-run
+```
+
+`CAL_TODAY` and `--today` are test-only date overrides. Notifications need the `NTFY_TOPIC` secret (workflow) or env var; `--dry-run` prints instead of sending.
 
 ## Hard constraints
 
 - **iOS 9 Safari compatibility** is the reason for everything unusual in the HTML: no JavaScript, no CSS Grid, no CSS custom properties, flexbox only, and a `<meta http-equiv="refresh" content="1800">` tag for auto-reload. Don't modernize the output HTML.
 - The output must remain a single self-contained file (inline CSS, no external assets) since it's deployed as-is to Pages.
+- The current-week page must fit one iPad mini screen (1024x768): the day columns have a fixed event height and show "+N more" past `MAX_PER_DAY`; the highlight cards and upcoming strip are fixed height. Re-check with a 1024x768 screenshot after layout changes.
 
 ## Architecture notes
 
-- `CALENDARS` at the top of `generate_calendar.py` defines each calendar's display name, colors (accent/tint/text), and the env var holding its feed URL. Colors must stay in sync with the legend rendered in the header. Adults = orange, Yuv = purple, Ivaan = green.
-- All times are rendered in `TIMEZONE` (`America/Chicago`). Floating-time events (no TZID) are treated as already-local, not UTC — this matches iCloud's behavior.
-- Each feed is fetched once across the whole multi-week range, then bucketed by day; `recurring_ical_events` expands recurrences. Per-day events sort all-day-first, then chronological.
+- `famcal.py` is shared by `generate_calendar.py` and `notify.py`. `PEOPLE` there is the single source for names, colors (accent/tint/text), short keys and env var names: Adults = orange (`a`), Yuv = purple (`y`), Ivaan = green (`i`), plus a blue "Both kids" style (`k`) used only for email items that apply to both kids (not a feed, not in the legend; shown while Yuv or Ivaan is visible). `CALENDARS` in `generate_calendar.py` is built from it.
+- All times are rendered in `famcal.TZ` (`America/Chicago`). Floating-time events (no TZID) are treated as already-local, not UTC — this matches iCloud's behavior.
+- Each feed is fetched once across the whole multi-week range; `recurring_ical_events` expands recurrences. Events are sorted all-day-first, then by real start time.
+- `events.json` (repo root) holds events extracted from school emails/PDFs. It is written by a Claude scheduled task (prompt in `INTAKE_TASK.md`) that reads the family Gmail inbox and commits to `main`. Shape: `{"last_checked": ..., "events": [{"id","title","date","end_date"?,"start"?,"end"?,"who":["yuv"|"ivaan"|"kids"|"adults"],"location"?,"notes"?,"source"}]}`. A bad row is skipped with a warning, never fatal. Items duplicating a feed event (same day, title, person) are dropped. They show an "EMAIL" tag.
+- Conflicts (`famcal.find_conflicts`) = overlapping timed events where at least one belongs to a kid; adult-vs-adult overlaps are ignored because the Adults calendar is merged. Conflicts involving a hidden calendar are not shown on that page.
 - The header shows current weather (°F and °C) for the coordinates in `WEATHER_LAT`/`WEATHER_LON` (Prosper, TX), fetched from Open-Meteo at build time with no API key; failure just drops the weather chip. Only old-Unicode emoji are used so they render on iOS 9.
 - Non-current-week pages use `<meta refresh>` with a redirect back to `index.html` so the fridge display self-recovers to the current week.
+- `notify.yml` fires at both daylight-saving UTC offsets; `notify.py` only sends when the Central-time clock is in the right hour (evening = 19:xx, Friday = 16:xx).
 
 ## Operational caveat
 
-GitHub disables scheduled workflows after 60 days of repo inactivity, so the calendar silently stops updating unless a commit or manual workflow run happens every couple of months.
+GitHub disables scheduled workflows after 60 days of repo inactivity. The daily `events.json` commit from the intake task keeps the repo active; if that task is ever turned off, push a commit or run a workflow manually every couple of months.
