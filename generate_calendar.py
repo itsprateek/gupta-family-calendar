@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta
 import requests
 
 import famcal
+import ics_export
 from famcal import PEOPLE, fmt_range, fmt_time, is_kid
 
 TIMEZONE = famcal.TZ
@@ -748,6 +749,12 @@ def main():
             with open(os.path.join(out_dir, page_name(offset, visible)), "w") as f:
                 f.write(page)
             pages += 1
+
+    # Calendar-app feed of the email events (with alerts). Never fatal.
+    try:
+        ics_export.write_feed(out_dir, os.environ.get("EVENTS_JSON", "events.json"))
+    except Exception as exc:
+        print(f"WARNING: school-events feed skipped ({exc})", file=sys.stderr)
 
     print(f"Generated {pages} pages ({range_start} to {range_end}), "
           f"weather={'ok' if weather else 'unavailable'}, "

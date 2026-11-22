@@ -34,6 +34,8 @@ python notify.py --mode friday --today 2026-11-20 --dry-run
 
 `CAL_TODAY` and `--today` are test-only date overrides. Notifications need the `NTFY_TOPIC` secret (workflow) or env var; `--dry-run` prints instead of sending.
 
+`ics_export.py` turns `events.json` into a calendar-app feed with three alerts per event (timed: 2 days, 1 day, 1 hour before; all-day: 9am two days before, 9am the day before, 7am that day). Each build writes it to the Pages output as `school-<24 hex>.ics`, where the hex is derived from the `ADULTS_ICS_URL` secret, so the link is unguessable and nothing secret is stored in the repo. The build log prints the file name; subscribe to `<Pages address>/<that name>` in Apple Calendar. `python ics_export.py events.json out.ics` makes a one-time import file. Only email events are exported, not the iCloud feed events (those already live in iCloud).
+
 ## Hard constraints
 
 - **iOS 9 Safari compatibility** is the reason for everything unusual in the HTML: no JavaScript, no CSS Grid, no CSS custom properties, flexbox only, and a `<meta http-equiv="refresh" content="1800">` tag for auto-reload. Don't modernize the output HTML.
