@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A static weekly family calendar page for a fridge-mounted old iPad (iOS 9). `generate_calendar.py` fetches 3 iCloud public ICS feeds (plus `events.json`, see below) and renders one self-contained HTML page per week (Mon–Sun) per show/hide combination into `output/`. `index.html` is the current week with all calendars visible; `w-1.html`/`w1.html` etc. cover `WEEKS_BACK` past and `WEEKS_FORWARD` future weeks, and suffixed variants like `w1-ai.html` show only the named calendars (keys `a`/`y`/`i`, `-none` = all hidden). Legend names and week arrows are plain links between these pre-rendered pages — that's how toggling and navigation work with zero JavaScript. A GitHub Actions workflow (`.github/workflows/update-calendar.yml`) runs it every 30 minutes and deploys the output to GitHub Pages.
 
-The current-week pages (`index*.html`) also show a highlight band (Today, Tomorrow, Conflicts) above the week grid and a "Kids coming up" strip below it. Browsed weeks keep the plain layout.
+The current-week pages (`index*.html`) also show a highlight band (Today, Tomorrow, Conflicts) above the week grid and a "Kids coming up" strip below it. Browsed weeks keep the plain layout. The Conflicts card only appears when there is a conflict in the next 7 days; otherwise Today and Tomorrow share the band.
+
+The look follows the season/holiday (`THEMES` and `theme_for(today)` in `generate_calendar.py`): header color, page tint, a thin stripe under the header, and a short greeting on the current-week page only. Christmas runs from the day after Thanksgiving to Dec 26; other holidays are New Year, Valentine's Day, St. Patrick's Day, Easter week, July 4th, Halloween and Thanksgiving. To add one, add a `THEMES` row and a date rule in `theme_for`. Keep headers dark enough for white text, and keep emoji iOS 9-safe.
 
 A second workflow, `.github/workflows/notify.yml`, runs `notify.py`, which sends ntfy phone notifications: the evening before (7pm Central, only if the kids have something or there is a conflict) and a Friday 4pm digest of the kids' next 10 days with conflicts.
 

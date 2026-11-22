@@ -19,7 +19,7 @@ loading and conflict logic live in famcal.py (shared with notify.py).
 import html as html_mod
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import requests
 
@@ -60,6 +60,81 @@ LINE_COLOR = "#DCE4E2"
 INK_COLOR = "#1B2B29"
 INK_SOFT = "#5C6B68"
 ALERT_COLOR = "#B3261E"
+
+# ---------------------------------------------------------------- themes
+# Seasonal / holiday look, picked from today's date at build time. Only the
+# header, page tint, a thin stripe and a short greeting change; the layout
+# is untouched. Emoji are old enough to render on iOS 9.
+
+def _thanksgiving(y):
+    first = date(y, 11, 1)
+    return date(y, 11, 1 + (3 - first.weekday()) % 7 + 21)  # 4th Thursday
+
+
+def _easter(y):
+    a = y % 19
+    b, c = divmod(y, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month, day = divmod(h + l - 7 * m + 114, 31)
+    return date(y, month, day + 1)
+
+
+# name: (greeting, header, page tint, button border, today's day name, stripe A, stripe B)
+THEMES = {
+    "default":      ("", "#1F4E4A", "#EFF3F1", "#5E807C", "#B9CFCC", "#1F4E4A", "#1F4E4A"),
+    "winter":       ("&#10052;&#65039; Winter", "#2B4C6F", "#EDF2F8", "#6F8DB0", "#C3D4E8", "#BBD3EC", "#FFFFFF"),
+    "valentines":   ("&#10084;&#65039; Happy Valentine&#8217;s Day", "#8E2F52", "#F8EEF2", "#C07A97", "#EFC6D6", "#E58BAA", "#FFFFFF"),
+    "stpatricks":   ("&#9752;&#65039; Happy St. Patrick&#8217;s Day", "#1F5E3B", "#EEF5EF", "#6FA384", "#BEDDC9", "#E0B72E", "#2E8B57"),
+    "easter":       ("&#128035; Happy Easter", "#6B5B95", "#F3F0F8", "#9D90C2", "#D6CDEC", "#F6D86B", "#F2A9C8"),
+    "spring":       ("&#127800; Spring", "#4A7A5A", "#F0F5EF", "#7FA78D", "#C7DDCF", "#F0A6C4", "#BFE0A8"),
+    "july4":        ("&#9733; Happy 4th of July &#9733;", "#1D3557", "#EEF1F6", "#6B84AB", "#C2CFE4", "#C8322B", "#FFFFFF"),
+    "summer":       ("&#9728;&#65039; Summer", "#0F6B7A", "#EDF6F7", "#5FA3AE", "#B5DCE2", "#F2B544", "#7ACBD6"),
+    "fall":         ("&#127810; Fall", "#7A4416", "#F6F0E8", "#B07C4E", "#E5CBB0", "#D9822B", "#8C5A2B"),
+    "halloween":    ("&#127875; Happy Halloween", "#2B1B3D", "#F2EEF5", "#7C66A0", "#CDBFE3", "#F28C28", "#1A1A1A"),
+    "thanksgiving": ("&#127809; Happy Thanksgiving", "#6E2A2A", "#F6EEE9", "#B07575", "#E6C3C3", "#D9822B", "#A8431F"),
+    "christmas":    ("&#127876; Happy Holidays", "#1F5A3A", "#F1F4EF", "#6FA384", "#BEDDC9", "#C8322B", "#FFFFFF"),
+    "newyear":      ("&#127878; Happy New Year", "#1B2440", "#EEF0F6", "#6B77A3", "#C3CAE6", "#C9A227", "#1B2440"),
+}
+
+
+def theme_for(today):
+    y = today.year
+    md = (today.month, today.day)
+    tg, ea = _thanksgiving(y), _easter(y)
+    if md >= (12, 27) or md <= (1, 3):
+        name = "newyear"
+    elif tg < today <= date(y, 12, 26):
+        name = "christmas"          # from the day after Thanksgiving
+    elif date(y, 11, 1) <= today <= tg:
+        name = "thanksgiving"
+    elif (10, 18) <= md <= (10, 31):
+        name = "halloween"
+    elif (6, 28) <= md <= (7, 4):
+        name = "july4"
+    elif ea - timedelta(days=7) <= today <= ea:
+        name = "easter"
+    elif (3, 10) <= md <= (3, 17):
+        name = "stpatricks"
+    elif (2, 7) <= md <= (2, 14):
+        name = "valentines"
+    elif today.month in (1, 2, 12):
+        name = "winter"
+    elif today.month in (3, 4, 5):
+        name = "spring"
+    elif today.month in (6, 7, 8):
+        name = "summer"
+    else:
+        name = "fall"
+    greeting, header, bg, btn, dayname, sa, sb = THEMES[name]
+    return {"name": name, "greeting": greeting, "header": header, "bg": bg,
+            "btn": btn, "dayname": dayname, "stripe_a": sa, "stripe_b": sb}
+
 
 DAY_NAMES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -234,10 +309,7 @@ def build_extras(today, events, conflicts, visible):
             f"<ul>{rows}</ul>{more}</div>"
         )
     else:
-        conflict_card = (
-            '<div class="card ok"><h2>Conflicts <span>next 7 days</span></h2>'
-            '<p class="none">All clear &#10003;</p></div>'
-        )
+        conflict_card = ""  # nothing to warn about: no card, Today/Tomorrow get the room
     band = (
         day_card("Today", today, events, conflicted_ids, visible)
         + day_card("Tomorrow", tomorrow, events, conflicted_ids, visible)
@@ -359,10 +431,16 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
         band_html = f'<div class="band">{extras["band"]}</div>'
         upcoming_html = f'<div class="upcoming">{extras["strip"]}</div>'
 
+    theme = theme_for(today)
+    # Greeting only on the current week (the fridge view); browsed weeks need the
+    # header room for the TODAY button.
+    festive_html = f'<div class="festive">{theme["greeting"]}</div>' if compact and theme["greeting"] else ""
     css = CSS
     for token, value in {
-        "@BG@": BG_COLOR, "@PANEL@": PANEL_COLOR, "@INK@": INK_COLOR, "@SOFT@": INK_SOFT,
-        "@LINE@": LINE_COLOR, "@HEADER@": HEADER_COLOR, "@ALERT@": ALERT_COLOR,
+        "@BG@": theme["bg"], "@PANEL@": PANEL_COLOR, "@INK@": INK_COLOR, "@SOFT@": INK_SOFT,
+        "@LINE@": LINE_COLOR, "@HEADER@": theme["header"], "@ALERT@": ALERT_COLOR,
+        "@BTN@": theme["btn"], "@DAYNAME@": theme["dayname"],
+        "@STRIPE_A@": theme["stripe_a"], "@STRIPE_B@": theme["stripe_b"],
     }.items():
         css = css.replace(token, value)
 
@@ -379,8 +457,10 @@ def render_html(week_start, week_end, by_day, generated_at, offset, weather, vis
 <div class="board">
   <div class="legend">
     <div class="legend-left">{legend_items}</div>
+    {festive_html}
     <div class="legend-right">{weather_html}{prev_html}<div class="week-range">{week_range_label}</div>{next_html}{today_html}</div>
   </div>
+  <div class="stripe"></div>
   {warn_html}
   {band_html}
   <div class="week">{days_html}
@@ -422,6 +502,21 @@ CSS = """
   }
   body.compact .legend { padding: 8px 20px; }
   .legend-left { display: flex; align-items: center; }
+  .festive {
+    flex: 1;
+    text-align: center;
+    font-size: 15px;
+    font-weight: bold;
+    color: #FFFFFF;
+    letter-spacing: 0.3px;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+  .stripe {
+    height: 5px;
+    background: @STRIPE_A@;
+    background-image: repeating-linear-gradient(135deg, @STRIPE_A@ 0, @STRIPE_A@ 8px, @STRIPE_B@ 8px, @STRIPE_B@ 16px);
+  }
   .legend-right { display: flex; align-items: center; }
   .legend-item {
     display: flex;
@@ -462,7 +557,7 @@ CSS = """
   .nav-btn {
     display: block;
     padding: 4px 16px;
-    border: 1px solid #5E807C;
+    border: 1px solid @BTN@;
     border-radius: 3px;
     color: #E4EEED;
     font-size: 18px;
@@ -501,7 +596,6 @@ CSS = """
   .adults { font-size: 11.5px; margin-top: 4px; padding-top: 3px; border-top: 1px solid @LINE@; }
   .card.alert { background: #FFF6F5; border-color: #E8B4AF; }
   .card.alert h2 { color: @ALERT@; }
-  .card.ok h2 { color: #2E5F3B; }
 
   .week {
     display: flex;
@@ -535,7 +629,7 @@ CSS = """
   }
   body.compact .day-num { font-size: 20px; margin-top: 0; }
   .day.today .day-head { background: @HEADER@; }
-  .day.today .day-name { color: #B9CFCC; }
+  .day.today .day-name { color: @DAYNAME@; }
   .day.today .day-num { color: #FFFFFF; }
 
   .events {
