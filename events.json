@@ -1,5 +1,5 @@
 {
- "last_checked": "2026-11-21T22:45:00-06:00",
+ "last_checked": "2026-11-21T23:15:00-06:00",
  "events": [
   {
    "id": "2026-11-23-no-school-thanksgiving-yuv",
@@ -10,6 +10,16 @@
     "yuv"
    ],
    "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-11-25-pma-closed-thanksgiving-ivaan",
+   "title": "PMA closed - Thanksgiving Break",
+   "date": "2026-11-25",
+   "end_date": "2026-11-27",
+   "who": [
+    "ivaan"
+   ],
+   "source": "PMA weekly update Nov 16-20 (emailed 2026-11-21)"
   },
   {
    "id": "2026-11-30-family-tradition-yuv",
@@ -120,6 +130,18 @@
    "source": "Kinder newsletter wk 15 (emailed 2026-11-19) + Candy Land flyer"
   },
   {
+   "id": "2026-12-15-primary-winter-concert-ivaan",
+   "title": "Primary Winter Concert",
+   "date": "2026-12-15",
+   "end_date": null,
+   "who": [
+    "ivaan"
+   ],
+   "location": "PMA covered area",
+   "notes": "Rocking Christmas concert; time not listed",
+   "source": "PMA weekly update Nov 16-20 (emailed 2026-11-21)"
+  },
+  {
    "id": "2026-12-16-candyland-extra-recess-yuv",
    "title": "Candy Land: Extra Recess",
    "date": "2026-12-16",
@@ -166,16 +188,14 @@
    "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
   },
   {
-   "id": "2026-12-18-winter-party-yuv",
-   "title": "Winter party",
+   "id": "2026-12-18-christmas-party-ivaan",
+   "title": "PMA Christmas Party",
    "date": "2026-12-18",
    "end_date": null,
-   "start": "09:00",
    "who": [
-    "yuv"
+    "ivaan"
    ],
-   "notes": "Candy Land winter parties",
-   "source": "Kinder newsletter wk 15 (emailed 2026-11-19) + Candy Land flyer"
+   "source": "PMA weekly update Nov 16-20 (emailed 2026-11-21)"
   },
   {
    "id": "2026-12-18-early-release-yuv",
@@ -189,6 +209,18 @@
    "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
   },
   {
+   "id": "2026-12-18-winter-party-yuv",
+   "title": "Winter party",
+   "date": "2026-12-18",
+   "end_date": null,
+   "start": "09:00",
+   "who": [
+    "yuv"
+   ],
+   "notes": "Candy Land winter parties",
+   "source": "Kinder newsletter wk 15 (emailed 2026-11-19) + Candy Land flyer"
+  },
+  {
    "id": "2026-12-21-no-school-winter-break-yuv",
    "title": "No School - Winter Break",
    "date": "2026-12-21",
@@ -197,6 +229,16 @@
     "yuv"
    ],
    "source": "Kinder newsletter wk 15 (emailed 2026-11-19)"
+  },
+  {
+   "id": "2026-12-21-pma-closed-winter-break-ivaan",
+   "title": "PMA closed - Winter Break",
+   "date": "2026-12-21",
+   "end_date": "2026-12-25",
+   "who": [
+    "ivaan"
+   ],
+   "source": "PMA weekly update Nov 16-20 (emailed 2026-11-21)"
   },
   {
    "id": "2027-01-05-first-day-back-yuv",
