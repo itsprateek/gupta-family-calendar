@@ -1,0 +1,44 @@
+name: Phone notifications
+
+on:
+  schedule:
+    # Cron is UTC only, so each alert fires at both daylight-saving offsets;
+    # notify.py checks the Central clock and does nothing in the wrong hour.
+    - cron: '0 0 * * *'     # 7pm CDT
+    - cron: '0 1 * * *'     # 7pm CST
+    - cron: '0 21 * * 5'    # Fri 4pm CDT
+    - cron: '0 22 * * 5'    # Fri 4pm CST
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Which notification to send now (ignores the clock)'
+        type: choice
+        options: [friday, evening]
+        default: friday
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send notification
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python notify.py --mode "${{ inputs.mode }}" --force
+          else
+            python notify.py --mode auto
+          fi
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          PAGE_URL: ${{ vars.PAGE_URL }}
+          ADULTS_ICS_URL: ${{ secrets.ADULTS_ICS_URL }}
+          YUV_ICS_URL: ${{ secrets.YUV_ICS_URL }}
+          IVAAN_ICS_URL: ${{ secrets.IVAAN_ICS_URL }}
